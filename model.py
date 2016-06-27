@@ -1,6 +1,7 @@
 import tensorflow as tf
 import numpy as np
 
+from tensorflow.python.platform import gfile
 
 FLAGS = tf.app.flags.FLAGS
 
@@ -19,6 +20,10 @@ tf.app.flags.DEFINE_float('relu_slope', 0.2,
 tf.app.flags.DEFINE_integer('z_size', 10,
                             """Square root size for input vector """
                             """for generator.""")
+
+
+def leaky_relu(x, alpha, name):
+    return tf.maximum(alpha * x, x, name=name)
 
 
 # TODO: Add Batchnorm
@@ -52,9 +57,31 @@ def deconv_layer(input_tensor, weight_init, filter_size, filter_stride,
     return activation
 
 
-def leaky_relu(x, alpha, name):
-    return tf.maximum(alpha * x, x, name=name)
+def random_generator_output(sess, z_tensor, output_tensor, batch_size, 
+                            z_size, z=None):
+    if not z:
+        z = np.random.normal(size=[batch_size, int(z_size ** 2)])
+    return sess.run(output_tensor, feed_dict={z_tensor: z})
 
+
+# TODO: add resize in decode tensor
+def random_input_images(sess, image_dir, batch_size, 
+                        image_data_tensor, decode_tensor):
+    filenames = [f for f in os.listdir(image_dir) if not f.startswith('.')]
+    images = []
+    for _ in xrange(batch_size):
+        index = np.random.randint(0, len(filenames))
+        image_path = os.path.join(image_dir, filenames[index])
+        image_data = gfile.FastGFile(image_path, 'rb').read()
+        image = sess.run(decode_tensor, 
+                         feed_dict={image_data_tensor: image_data})
+        images.append(image)
+    return images
+
+
+def discriminator_output(sess, input_images, x_tensor, output_tensor):
+    return sess.run(output_tensor, feed_dict(x_tensor: input_images))
+        
 
 INPUT_CHANNELS = 3
 
@@ -139,7 +166,7 @@ def main(_):
                                DECONV3_OUT_SIZE,
                                tf.nn.relu,
                                'deconv3')
-        deconv4 = deconv_layer(deconv3, 
+        gen_out = deconv_layer(deconv3, 
                                FLAGS.weight_init,
                                DECONV4_FILTER_SIZE,
                                DECONV4_FILTER_STRIDE,
@@ -147,7 +174,7 @@ def main(_):
                                DECONV3_NUM_FILTERS,
                                DECONV4_OUT_SIZE,
                                tf.tanh,
-                               'deconv4')
+                               'gen_out')
 
     with tf.name_scope('Discriminator'):
         x = tf.placeholder(tf.float32,
@@ -176,16 +203,16 @@ def main(_):
                                                       FLAGS.relu_slope, 
                                                       name),
                            'conv1')
-        conv0 = conv_layer(x, 
-                           FLAGS.weight_init,
-                           CONV2_FILTER_SIZE,
-                           CONV2_FILTER_STRIDE,
-                           CONV2_NUM_FILTERS,
-                           CONV1_NUM_FILTERS,
-                           lambda x, name: leaky_relu(x, 
-                                                      FLAGS.relu_slope, 
-                                                      name),
-                           'conv2')
+        disc_out = conv_layer(x, 
+                              FLAGS.weight_init,
+                              CONV2_FILTER_SIZE,
+                              CONV2_FILTER_STRIDE,
+                              CONV2_NUM_FILTERS,
+                              CONV1_NUM_FILTERS,
+                              lambda x, name: leaky_relu(x, 
+                                                         FLAGS.relu_slope, 
+                                                         name),
+                              'disc_out')
                            
 
 
