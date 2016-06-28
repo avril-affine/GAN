@@ -3,6 +3,7 @@ import numpy as np
 import os
 
 from tensorflow.python.platform import gfile
+from datetime import datetime
 
 FLAGS = tf.app.flags.FLAGS
 
@@ -324,14 +325,20 @@ def discriminator(input_tensor, mode_tensor):
 
 def add_optimization(learning_rate, beta1, beta2, disc_gen, disc_true, 
                      gen_label, disc_label):
-    gen_loss = tf.reduce_mean(tf.log(1 - disc_gen), name='gen_loss')
-    disc_loss = tf.sub(-tf.reduce_mean(tf.log(disc_true)), gen_loss,
+    gen_loss = tf.reduce_mean(-tf.log(1 - disc_gen), name='gen_loss')
+    disc_loss = tf.sub(tf.reduce_mean(tf.log(disc_true)), gen_loss,
                        name='disc_loss')
     
     gen_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES,
                                  scope=gen_label)
     disc_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES,
                                   scope=disc_label)
+    # print 'gen vars---------------------'
+    # for v in gen_vars:
+    #     print v.name
+    # print 'disc vars----------------'
+    # for v in disc_vars:
+    #     print v.name
 
     gen_opt = tf.train.AdamOptimizer(learning_rate=learning_rate,
                                      beta1=beta1,
@@ -339,9 +346,9 @@ def add_optimization(learning_rate, beta1, beta2, disc_gen, disc_true,
                                                            var_list=gen_vars)
     disc_opt = tf.train.AdamOptimizer(learning_rate=learning_rate,
                                       beta1=beta1,
-                                      beta2=beta2).minimize(gen_loss,
+                                      beta2=beta2).minimize(disc_loss,
                                                             var_list=disc_vars)
-    return gen_opt, disc_opt
+    return gen_loss, disc_loss, gen_opt, disc_opt
 
 
 def main(_):
@@ -373,13 +380,14 @@ def main(_):
                                          channels=INPUT_CHANNELS)
 
     # Add update steps
-    gen_step, disc_step = add_optimization(FLAGS.learning_rate,
-                                           FLAGS.beta1,
-                                           FLAGS.beta2,
-                                           disc_gen, 
-                                           disc_true,
-                                           generator_label, 
-                                           discriminator_label)
+    gen_loss, disc_loss, gen_step, disc_step = (
+            add_optimization(FLAGS.learning_rate,
+                             FLAGS.beta1,
+                             FLAGS.beta2,
+                             disc_gen, 
+                             disc_true,
+                             generator_label, 
+                             discriminator_label))
 
     # Create graph
     sess = tf.Session()
@@ -387,10 +395,14 @@ def main(_):
     sess.run(init)
 
     writer = tf.train.SummaryWriter(FLAGS.summary_dir, sess.graph)
+    saver = tf.train.Saver(max_to_keep=1)
     img_summary = tf.image_summary('Generator Images', gen_out)
+    gen_loss_summ = tf.scalar_summary('Generator Loss', gen_loss)
+    disc_loss_summ = tf.scalar_summary('Discriminator Loss', disc_loss)
 
     n_train = len([f for f in os.listdir(FLAGS.image_dir)
                    if not f.startswith('.')])
+    n_epoch = n_train / FLAGS.batch_size
 
     for step in xrange(FLAGS.num_steps):
         # Discriminator update step.
@@ -400,21 +412,34 @@ def main(_):
                                              FLAGS.batch_size,
                                              image_data_tensor,
                                              decode_tensor)
-        sess.run(disc_step, feed_dict={z: batch_z, 
-                                       x_true: batch_imgs,
-                                       mode_tensor: 'train'})
+        results = sess.run([disc_loss, disc_loss_summ, disc_step], 
+                           feed_dict={z: batch_z, 
+                                      x_true: batch_imgs, 
+                                      mode_tensor: 'train'})
+        step_loss, disc_loss_str, _ = results
+        print '{} | Step {} | Loss = {}'.format(datetime.now(), 
+                                                step, 
+                                                step_loss)
 
         # Generator update step.
         batch_z = get_random_z(FLAGS.batch_size, int(FLAGS.z_size ** 2))
-        sess.run(gen_step, feed_dict={z: batch_z,
-                                      mode_tensor: 'train'})
+        gen_loss_str, _ = sess.run([gen_loss_summ, gen_step],
+                                   feed_dict={z: batch_z,
+                                              mode_tensor: 'train'})
 
-        if step % n_train == 0 or step + 1 == FLAGS.num_steps:
+        writer.add_summary(disc_loss_str, step)
+        writer.add_summary(gen_loss_str, step)
+
+        if step % n_epoch == 0 or step + 1 == FLAGS.num_steps:
+            print 'Writing test image'
             img_summary_str = sess.run(img_summary,
                                        feed_dict={z: batch_z,
                                                   mode_tensor: 'test'})
             writer.add_summary(img_summary_str, step)
-            print 'Test images step {}'.format(step)
+            model_path = os.path.join(FLAGS.summary_dir, 'model.ckpt')
+            saver.save(sess, model_path, global_step=step)
+
+    wrtier.close()
 
 
 if __name__ == '__main__':
