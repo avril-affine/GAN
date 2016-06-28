@@ -24,7 +24,7 @@ def get_flickr_keys():
     Return flckr key and secret key.
     '''
     # Get skey and ecret key for the flikr api
-    with open('/Users/PANDA/flickr_key.json') as f:
+    with open('/Users/PANDA/Dropbox/flickr_key.json') as f:
         data = json.load(f)
         api_key = data['Key']
         api_secret = data['Secret']

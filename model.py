@@ -1,5 +1,6 @@
 import tensorflow as tf
 import numpy as np
+import os
 
 from tensorflow.python.platform import gfile
 
@@ -27,7 +28,7 @@ tf.app.flags.DEFINE_integer('batch_size', 128,
 
 tf.app.flags.DEFINE_string('summary_dir', 'logs/',
                            """Path of where to store the summary files.""")
-tf.app.flags.DEFINE_string('image_dir', 'images/',
+tf.app.flags.DEFINE_string('image_dir', 'flickr_resize/',
                            """Path of where to store the summary files.""")
 
 
@@ -82,25 +83,31 @@ def leaky_relu(x, alpha, name):
     return tf.maximum(alpha * x, x, name=name)
 
 
-def batch_norm(x, n_out, phase_train, scope='bn'):
-    with tf.variable_scope(scope):
-        beta = tf.Variable(tf.constant(0.0, shape=[n_out]),
-                                       name='beta', trainable=True)
-        gamma = tf.Variable(tf.constant(1.0, shape=[n_out]),
-                                        name='gamma', trainable=True)
-        batch_mean, batch_var = tf.nn.moments(x, [0,1,2], name='moments')
-        ema = tf.train.ExponentialMovingAverage(decay=0.9)
+def batch_norm(x, n_out, phase_train, name='bn'):
+    beta = tf.get_variable(name + '/beta',
+                           shape=[n_out],
+                           initializer=tf.constant_initializer())
+    gamma = tf.get_variable(name + '/gamma',
+                            shape=[n_out],
+                            initializer=tf.constant_initializer(1.0))
+    # beta = tf.Variable(tf.constant(0.0, shape=[n_out]),
+    #                                name='beta', trainable=True)
+    # gamma = tf.Variable(tf.constant(1.0, shape=[n_out]),
+    #                                 name='gamma', trainable=True)
+    batch_mean, batch_var = tf.nn.moments(x, [0,1,2], 
+                                          name=name + '/moments')
+    ema = tf.train.ExponentialMovingAverage(decay=0.9)
 
-        def mean_var_with_update():
-            ema_apply_op = ema.apply([batch_mean, batch_var])
-            with tf.control_dependencies([ema_apply_op]):
-                return tf.identity(batch_mean), tf.identity(batch_var)
+    def mean_var_with_update():
+        ema_apply_op = ema.apply([batch_mean, batch_var])
+        with tf.control_dependencies([ema_apply_op]):
+            return tf.identity(batch_mean), tf.identity(batch_var)
 
-        mean, var = tf.cond(phase_train,
-                            mean_var_with_update,
-                            lambda: (ema.average(batch_mean), 
-                                     ema.average(batch_var)))
-        normed = tf.nn.batch_normalization(x, mean, var, beta, gamma, 1e-3)
+    mean, var = tf.cond(phase_train,
+                        mean_var_with_update,
+                        lambda: (ema.average(batch_mean), 
+                                 ema.average(batch_var)))
+    normed = tf.nn.batch_normalization(x, mean, var, beta, gamma, 1e-3)
     return normed
 
 
@@ -123,7 +130,8 @@ def conv_layer(input_tensor, mode_tensor, weight_init, filter_size,
                         name=name + '/affine')
     # Apply batchnorm
     if use_batchnorm:
-        conv = batch_norm(conv, num_filters, tf.equal(mode_tensor, 'train'))
+        conv = batch_norm(conv, num_filters, tf.equal(mode_tensor, 'train'),
+                          name + '/bn')
             
     activation = nonlinear_func(tf.nn.bias_add(conv, bias), 
                                 name=name + '/activation')
@@ -155,18 +163,18 @@ def deconv_layer(input_tensor, mode_tensor, weight_init, filter_size,
     # Apply batchnorm
     if use_batchnorm:
         deconv = batch_norm(deconv, num_filters,
-                            tf.equal(mode_tensor, 'train'))
+                            tf.equal(mode_tensor, 'train'),
+                            name + '/bn')
 
     activation = nonlinear_func(tf.nn.bias_add(deconv, bias), 
                                 name=name + '/activation')
     return activation
 
 
-def get_random_z(batch_size):
-    return np.random.uniform(-1.0, 1.0, size=[batch_size])
+def get_random_z(batch_size, z_size):
+    return np.random.uniform(-1.0, 1.0, size=[batch_size, z_size])
 
 
-# TODO: add resize in decode tensor
 def get_random_input_images(sess, image_dir, batch_size, 
                             image_data_tensor, decode_tensor):
     filenames = [f for f in os.listdir(image_dir) if not f.startswith('.')]
@@ -330,7 +338,8 @@ def add_optimization(learning_rate, beta1, beta2, disc_gen, disc_true,
                                      beta2=beta2).minimize(gen_loss,
                                                            var_list=gen_vars)
     disc_opt = tf.train.AdamOptimizer(learning_rate=learning_rate,
-                                      beta1=beta1).minimize(gen_loss,
+                                      beta1=beta1,
+                                      beta2=beta2).minimize(gen_loss,
                                                             var_list=disc_vars)
     return gen_opt, disc_opt
 
@@ -358,11 +367,6 @@ def main(_):
                                 name='X_true')
         disc_true = discriminator(x_true, mode_tensor)
 
-    # Create graph
-    sess = tf.Session()
-    init = tf.initialize_all_variables()
-    sess.run(init)
-
     # Read image tensors.
     image_data_tensor = tf.placeholder(tf.string)
     decode_tensor = tf.image.decode_jpeg(image_data_tensor, 
@@ -377,22 +381,40 @@ def main(_):
                                            generator_label, 
                                            discriminator_label)
 
+    # Create graph
+    sess = tf.Session()
+    init = tf.initialize_all_variables()
+    sess.run(init)
+
     writer = tf.train.SummaryWriter(FLAGS.summary_dir, sess.graph)
-    return
+    img_summary = tf.image_summary('Generator Images', gen_out)
+
+    n_train = len([f for f in os.listdir(FLAGS.image_dir)
+                   if not f.startswith('.')])
 
     for step in xrange(FLAGS.num_steps):
         # Discriminator update step.
-        batch_z = get_random_z(FLAGS.batch_size)
+        batch_z = get_random_z(FLAGS.batch_size, int(FLAGS.z_size ** 2))
         batch_imgs = get_random_input_images(sess,
                                              FLAGS.image_dir,
                                              FLAGS.batch_size,
                                              image_data_tensor,
                                              decode_tensor)
-        sess.run(disc_step, feed_dict={z: batch_z, x_true: batch_imgs})
+        sess.run(disc_step, feed_dict={z: batch_z, 
+                                       x_true: batch_imgs,
+                                       mode_tensor: 'train'})
 
         # Generator update step.
-        batch_z = get_random_z(FLAGS.batch_size)
-        sess.run(gen_step, feed_dict={z: batch_z})
+        batch_z = get_random_z(FLAGS.batch_size, int(FLAGS.z_size ** 2))
+        sess.run(gen_step, feed_dict={z: batch_z,
+                                      mode_tensor: 'train'})
+
+        if step % n_train == 0 or step + 1 == FLAGS.num_steps:
+            img_summary_str = sess.run(img_summary,
+                                       feed_dict={z: batch_z,
+                                                  mode_tensor: 'test'})
+            writer.add_summary(img_summary_str, step)
+            print 'Test images step {}'.format(step)
 
 
 if __name__ == '__main__':
