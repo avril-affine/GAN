@@ -1,7 +1,6 @@
 ##############################################################################
 #
-# Functions to use the flicker api to search and download images
-# of Chicago, London, and  San Francisco.
+# Functions to use the flicker api to search and download images.
 #
 # Modified from https://github.com/k-lev/City_Tagger
 #
@@ -121,5 +120,5 @@ def flkr_search(type, tags):
         
 
 if __name__ == '__main__':
-    flkr_search('tag', ['cute puppies'])
-    flkr_search('text', ['cute puppies'])
+    flkr_search('tag', ['cute puppy'])
+    flkr_search('text', ['cute puppy'])

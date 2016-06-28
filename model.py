@@ -7,12 +7,14 @@ FLAGS = tf.app.flags.FLAGS
 
 
 # Optimization parameters.
-tf.app.flags.DEFINE_integer('num_steps', 10000,
+tf.app.flags.DEFINE_integer('num_steps', 2000,
                             """How many training steps to run.""")
 tf.app.flags.DEFINE_float('learning_rate', 0.0002,
                           """Learning rate suggested in paper.""")
 tf.app.flags.DEFINE_float('beta1', 0.5,
                           """Beta1 suggested in paper.""")
+tf.app.flags.DEFINE_float('beta2', 0.99,
+                          """Beta2 for adam optimizer.""")
 tf.app.flags.DEFINE_float('weight_init', 0.02,
                           """Weight initialization standard deviation.""")
 tf.app.flags.DEFINE_float('relu_slope', 0.2,
@@ -54,8 +56,13 @@ DECONV3_OUT_SIZE = 32
 
 DECONV4_FILTER_SIZE = 5     # Is this right filter size?
 DECONV4_FILTER_STRIDE = 2
-DECONV4_NUM_FILTERS = 3
+DECONV4_NUM_FILTERS = 16
 DECONV4_OUT_SIZE = 64
+
+DECONV5_FILTER_SIZE = 5     # Is this right filter size?
+DECONV5_FILTER_STRIDE = 2
+DECONV5_NUM_FILTERS = 3
+DECONV5_OUT_SIZE = 128
 
 # Discriminator Layers
 CONV0_FILTER_SIZE = 2
@@ -140,7 +147,7 @@ def deconv_layer(input_tensor, mode_tensor, weight_init, filter_size,
     # batch_size = tf.shape(input_tensor)[0]
     # output_shape = tf.pack([batch_size, output_size, output_size, num_filters])
     # TODO: batchnorm needs last dimension shape but pack takes that away
-    output_shape = [100, output_size, output_size, num_filters]
+    output_shape = [FLAGS.batch_size, output_size, output_size, num_filters]
     stride = [1, filter_stride, filter_stride, 1]
     deconv = tf.nn.conv2d_transpose(input_tensor, deconv_weights, output_shape,
                                     stride, padding='SAME', 
@@ -156,7 +163,7 @@ def deconv_layer(input_tensor, mode_tensor, weight_init, filter_size,
 
 
 def get_random_z(batch_size):
-    return np.random.normal(size=[batch_size])
+    return np.random.uniform(-1.0, 1.0, size=[batch_size])
 
 
 # TODO: add resize in decode tensor
@@ -220,7 +227,7 @@ def generator(input_tensor, mode_tensor):
                            tf.nn.relu,
                            True,
                            'deconv3')
-    gen_out = deconv_layer(deconv3, 
+    deconv4 = deconv_layer(deconv3, 
                            mode_tensor,
                            FLAGS.weight_init,
                            DECONV4_FILTER_SIZE,
@@ -228,8 +235,19 @@ def generator(input_tensor, mode_tensor):
                            DECONV4_NUM_FILTERS,
                            DECONV3_NUM_FILTERS,
                            DECONV4_OUT_SIZE,
+                           tf.nn.relu,
+                           True,
+                           'deconv4')
+    gen_out = deconv_layer(deconv4, 
+                           mode_tensor,
+                           FLAGS.weight_init,
+                           DECONV5_FILTER_SIZE,
+                           DECONV5_FILTER_STRIDE,
+                           DECONV5_NUM_FILTERS,
+                           DECONV4_NUM_FILTERS,
+                           DECONV5_OUT_SIZE,
                            tf.tanh,
-                           False,
+                           True,
                            'output')
     return gen_out
 
@@ -296,7 +314,7 @@ def discriminator(input_tensor, mode_tensor):
     return disc_out
 
 
-def add_optimization(learning_rate, beta1, disc_gen, disc_true, 
+def add_optimization(learning_rate, beta1, beta2, disc_gen, disc_true, 
                      gen_label, disc_label):
     gen_loss = tf.reduce_mean(tf.log(1 - disc_gen), name='gen_loss')
     disc_loss = tf.sub(-tf.reduce_mean(tf.log(disc_true)), gen_loss,
@@ -308,7 +326,8 @@ def add_optimization(learning_rate, beta1, disc_gen, disc_true,
                                   scope=disc_label)
 
     gen_opt = tf.train.AdamOptimizer(learning_rate=learning_rate,
-                                     beta1=beta1).minimize(gen_loss,
+                                     beta1=beta1,
+                                     beta2=beta2).minimize(gen_loss,
                                                            var_list=gen_vars)
     disc_opt = tf.train.AdamOptimizer(learning_rate=learning_rate,
                                       beta1=beta1).minimize(gen_loss,
@@ -328,19 +347,13 @@ def main(_):
         gen_out = generator(z, mode_tensor)
 
     with tf.variable_scope(discriminator_label) as scope:
-        # x_gen = tf.placeholder(tf.float32,
-        #                        shape=[None, 
-        #                               DECONV4_OUT_SIZE, 
-        #                               DECONV4_OUT_SIZE,
-        #                               INPUT_CHANNELS],
-        #                        name='X_gen')
         disc_gen = discriminator(gen_out, mode_tensor)
 
         scope.reuse_variables()
         x_true = tf.placeholder(tf.float32,
                                 shape=[None, 
-                                       DECONV4_OUT_SIZE, 
-                                       DECONV4_OUT_SIZE,
+                                       DECONV5_OUT_SIZE, 
+                                       DECONV5_OUT_SIZE,
                                        INPUT_CHANNELS],
                                 name='X_true')
         disc_true = discriminator(x_true, mode_tensor)
@@ -358,6 +371,7 @@ def main(_):
     # Add update steps
     gen_step, disc_step = add_optimization(FLAGS.learning_rate,
                                            FLAGS.beta1,
+                                           FLAGS.beta2,
                                            disc_gen, 
                                            disc_true,
                                            generator_label, 
