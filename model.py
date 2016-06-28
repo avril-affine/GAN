@@ -422,7 +422,7 @@ def main(_):
                                                 step_loss)
 
         # Generator update step.
-        batch_z = get_random_z(FLAGS.batch_size, int(FLAGS.z_size ** 2))
+        # batch_z = get_random_z(FLAGS.batch_size, int(FLAGS.z_size ** 2))
         gen_loss_str, _ = sess.run([gen_loss_summ, gen_step],
                                    feed_dict={z: batch_z,
                                               mode_tensor: 'train'})
