@@ -391,6 +391,7 @@ def main(_):
 
     n_train = len([f for f in os.listdir(FLAGS.image_dir)
                    if not f.startswith('.')])
+    n_epoch = n_train / FLAGS.batch_size
 
     for step in xrange(FLAGS.num_steps):
         # Discriminator update step.
@@ -409,7 +410,7 @@ def main(_):
         sess.run(gen_step, feed_dict={z: batch_z,
                                       mode_tensor: 'train'})
 
-        if step % n_train == 0 or step + 1 == FLAGS.num_steps:
+        if step % n_epoch == 0 or step + 1 == FLAGS.num_steps:
             img_summary_str = sess.run(img_summary,
                                        feed_dict={z: batch_z,
                                                   mode_tensor: 'test'})
