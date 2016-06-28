@@ -75,15 +75,33 @@ def leaky_relu(x, alpha, name):
     return tf.maximum(alpha * x, x, name=name)
 
 
-# TODO: Add Batchnorm
-def conv_layer(input_tensor, weight_init, filter_size, filter_stride, 
-               num_filters, in_channels, nonlinear_func, name):
+def batch_norm(x, n_out, phase_train, scope='bn'):
+    with tf.variable_scope(scope):
+        beta = tf.Variable(tf.constant(0.0, shape=[n_out]),
+                                       name='beta', trainable=True)
+        gamma = tf.Variable(tf.constant(1.0, shape=[n_out]),
+                                        name='gamma', trainable=True)
+        batch_mean, batch_var = tf.nn.moments(x, [0,1,2], name='moments')
+        ema = tf.train.ExponentialMovingAverage(decay=0.9)
+
+        def mean_var_with_update():
+            ema_apply_op = ema.apply([batch_mean, batch_var])
+            with tf.control_dependencies([ema_apply_op]):
+                return tf.identity(batch_mean), tf.identity(batch_var)
+
+        mean, var = tf.cond(phase_train,
+                            mean_var_with_update,
+                            lambda: (ema.average(batch_mean), 
+                                     ema.average(batch_var)))
+        normed = tf.nn.batch_normalization(x, mean, var, beta, gamma, 1e-3)
+    return normed
+
+
+def conv_layer(input_tensor, mode_tensor, weight_init, filter_size, 
+               filter_stride, num_filters, in_channels, nonlinear_func, 
+               use_batchnorm, name):
+    # Init variables
     weight_shape = [filter_size, filter_size, in_channels, num_filters]
-    # conv_weights = np.random.normal(scale=weight_init, size=weight_shape)
-    # conv_weights = tf.Variable(conv_weights, dtype=tf.float32,
-    #                            name=name + '/weights')
-    # bias_init = np.zeros(num_filters)
-    # bias = tf.Variable(bias_init, dtype=tf.float32, name=name+ '/bias')
     initializer = tf.random_normal_initializer(stddev=weight_init)
     conv_weights = tf.get_variable(name + '/weights',
                                    shape=weight_shape,
@@ -92,23 +110,24 @@ def conv_layer(input_tensor, weight_init, filter_size, filter_stride,
                            shape=[num_filters],
                            initializer=tf.constant_initializer())
 
+    # Apply convolution
     stride = [1, filter_stride, filter_stride, 1]
     conv = tf.nn.conv2d(input_tensor, conv_weights, stride, padding='VALID',
                         name=name + '/affine')
+    # Apply batchnorm
+    if use_batchnorm:
+        conv = batch_norm(conv, num_filters, tf.equal(mode_tensor, 'train'))
+            
     activation = nonlinear_func(tf.nn.bias_add(conv, bias), 
                                 name=name + '/activation')
     return activation
 
 
-# TODO: Add Batchnorm
-def deconv_layer(input_tensor, weight_init, filter_size, filter_stride, 
-                 num_filters, in_channels, output_size, nonlinear_func, name):
+def deconv_layer(input_tensor, mode_tensor, weight_init, filter_size, 
+                 filter_stride, num_filters, in_channels, output_size, 
+                 nonlinear_func, use_batchnorm, name):
+    # Initialize variables
     weight_shape = [filter_size, filter_size, num_filters, in_channels]
-    # deconv_weights = np.random.normal(scale=weight_init, size=weight_shape)
-    # deconv_weights = tf.Variable(deconv_weights, dtype=tf.float32, 
-    #                              name=name + '/weights')
-    # bias_init = np.zeros(num_filters)
-    # bias = tf.Variable(bias_init, dtype=tf.float32, name=name+ '/bias')
     initializer = tf.random_normal_initializer(stddev=weight_init)
     deconv_weights = tf.get_variable(name + '/weights',
                                      shape=weight_shape,
@@ -117,12 +136,20 @@ def deconv_layer(input_tensor, weight_init, filter_size, filter_stride,
                            shape=[num_filters],
                            initializer=tf.constant_initializer())
 
-    batch_size = tf.shape(input_tensor)[0]
-    output_shape = tf.pack([batch_size, output_size, output_size, num_filters])
+    # Apply deconvolution
+    # batch_size = tf.shape(input_tensor)[0]
+    # output_shape = tf.pack([batch_size, output_size, output_size, num_filters])
+    # TODO: batchnorm needs last dimension shape but pack takes that away
+    output_shape = [100, output_size, output_size, num_filters]
     stride = [1, filter_stride, filter_stride, 1]
     deconv = tf.nn.conv2d_transpose(input_tensor, deconv_weights, output_shape,
                                     stride, padding='SAME', 
                                     name=name + '/affine')
+    # Apply batchnorm
+    if use_batchnorm:
+        deconv = batch_norm(deconv, num_filters,
+                            tf.equal(mode_tensor, 'train'))
+
     activation = nonlinear_func(tf.nn.bias_add(deconv, bias), 
                                 name=name + '/activation')
     return activation
@@ -147,18 +174,21 @@ def get_random_input_images(sess, image_dir, batch_size,
     return images
 
 
-def generator(input_tensor):
+def generator(input_tensor, mode_tensor):
     z_in = tf.reshape(input_tensor, 
                       shape=[-1, FLAGS.z_size, FLAGS.z_size, 1])
     deconv0 = conv_layer(z_in, 
+                         mode_tensor,
                          FLAGS.weight_init,
                          DECONV0_FILTER_SIZE,
                          DECONV0_FILTER_STRIDE,
                          DECONV0_NUM_FILTERS,
                          1,
                          tf.nn.relu,
+                         True,
                          'deconv0')
     deconv1 = deconv_layer(deconv0, 
+                           mode_tensor,
                            FLAGS.weight_init,
                            DECONV1_FILTER_SIZE,
                            DECONV1_FILTER_STRIDE,
@@ -166,8 +196,10 @@ def generator(input_tensor):
                            DECONV0_NUM_FILTERS,
                            DECONV1_OUT_SIZE,
                            tf.nn.relu,
+                           True,
                            'deconv1')
     deconv2 = deconv_layer(deconv1, 
+                           mode_tensor,
                            FLAGS.weight_init,
                            DECONV2_FILTER_SIZE,
                            DECONV2_FILTER_STRIDE,
@@ -175,8 +207,10 @@ def generator(input_tensor):
                            DECONV1_NUM_FILTERS,
                            DECONV2_OUT_SIZE,
                            tf.nn.relu,
+                           True,
                            'deconv2')
     deconv3 = deconv_layer(deconv2, 
+                           mode_tensor,
                            FLAGS.weight_init,
                            DECONV3_FILTER_SIZE,
                            DECONV3_FILTER_STRIDE,
@@ -184,8 +218,10 @@ def generator(input_tensor):
                            DECONV2_NUM_FILTERS,
                            DECONV3_OUT_SIZE,
                            tf.nn.relu,
+                           True,
                            'deconv3')
     gen_out = deconv_layer(deconv3, 
+                           mode_tensor,
                            FLAGS.weight_init,
                            DECONV4_FILTER_SIZE,
                            DECONV4_FILTER_STRIDE,
@@ -193,12 +229,14 @@ def generator(input_tensor):
                            DECONV3_NUM_FILTERS,
                            DECONV4_OUT_SIZE,
                            tf.tanh,
+                           False,
                            'output')
     return gen_out
 
 
-def discriminator(input_tensor):
+def discriminator(input_tensor, mode_tensor):
     conv0 = conv_layer(input_tensor, 
+                       mode_tensor,
                        FLAGS.weight_init,
                        CONV0_FILTER_SIZE,
                        CONV0_FILTER_STRIDE,
@@ -207,8 +245,10 @@ def discriminator(input_tensor):
                        lambda x, name: leaky_relu(x, 
                                                   FLAGS.relu_slope, 
                                                   name),
+                       False,
                        'conv0')
     conv1 = conv_layer(conv0, 
+                       mode_tensor,
                        FLAGS.weight_init,
                        CONV1_FILTER_SIZE,
                        CONV1_FILTER_STRIDE,
@@ -217,8 +257,10 @@ def discriminator(input_tensor):
                        lambda x, name: leaky_relu(x, 
                                                   FLAGS.relu_slope, 
                                                   name),
+                       True,
                        'conv1')
     conv2 = conv_layer(conv1, 
+                       mode_tensor,
                        FLAGS.weight_init,
                        CONV2_FILTER_SIZE,
                        CONV2_FILTER_STRIDE,
@@ -227,6 +269,7 @@ def discriminator(input_tensor):
                        lambda x, name: leaky_relu(x, 
                                                   FLAGS.relu_slope, 
                                                   name),
+                       True,
                        'conv2')
 
     # Make the output a probability.
@@ -255,31 +298,34 @@ def discriminator(input_tensor):
 
 def add_optimization(learning_rate, beta1, disc_gen, disc_true, 
                      gen_label, disc_label):
-    gen_loss = tf.reduce_mean(tf.log(1 - disc_gen))
-    disc_loss = -(tf.reduce_mean(tf.log(disc_true)) + gen_loss)
+    gen_loss = tf.reduce_mean(tf.log(1 - disc_gen), name='gen_loss')
+    disc_loss = tf.sub(-tf.reduce_mean(tf.log(disc_true)), gen_loss,
+                       name='disc_loss')
     
     gen_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES,
                                  scope=gen_label)
     disc_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES,
                                   scope=disc_label)
 
-    gen_opt = tf.AdamOptimizer(learning_rate=learning_rate,
-                               beta1=beta1).minimize(gen_loss,
-                                                     var_list=gen_vars)
-    disc_opt = tf.AdamOptimizer(learning_rate=learning_rate,
-                                beta1=beta1).minimize(gen_loss,
-                                                      var_list=disc_vars)
+    gen_opt = tf.train.AdamOptimizer(learning_rate=learning_rate,
+                                     beta1=beta1).minimize(gen_loss,
+                                                           var_list=gen_vars)
+    disc_opt = tf.train.AdamOptimizer(learning_rate=learning_rate,
+                                      beta1=beta1).minimize(gen_loss,
+                                                            var_list=disc_vars)
     return gen_opt, disc_opt
 
 
 def main(_):
+
     generator_label = 'Generator'
     discriminator_label = 'Discriminator'
+    mode_tensor = tf.placeholder(tf.string, shape=[], name='mode')
     with tf.variable_scope(generator_label):
         z = tf.placeholder(tf.float32, 
                            shape=[None, int(FLAGS.z_size ** 2)], 
                            name='Z')
-        gen_out = generator(z)
+        gen_out = generator(z, mode_tensor)
 
     with tf.variable_scope(discriminator_label) as scope:
         # x_gen = tf.placeholder(tf.float32,
@@ -288,7 +334,7 @@ def main(_):
         #                               DECONV4_OUT_SIZE,
         #                               INPUT_CHANNELS],
         #                        name='X_gen')
-        disc_gen = discriminator(gen_out)
+        disc_gen = discriminator(gen_out, mode_tensor)
 
         scope.reuse_variables()
         x_true = tf.placeholder(tf.float32,
@@ -297,9 +343,9 @@ def main(_):
                                        DECONV4_OUT_SIZE,
                                        INPUT_CHANNELS],
                                 name='X_true')
-        disc_true = discriminator(x_true)
+        disc_true = discriminator(x_true, mode_tensor)
 
-    # Create the graph.
+    # Create graph
     sess = tf.Session()
     init = tf.initialize_all_variables()
     sess.run(init)
@@ -318,6 +364,7 @@ def main(_):
                                            discriminator_label)
 
     writer = tf.train.SummaryWriter(FLAGS.summary_dir, sess.graph)
+    return
 
     for step in xrange(FLAGS.num_steps):
         # Discriminator update step.
