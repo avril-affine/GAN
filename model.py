@@ -15,7 +15,7 @@ tf.app.flags.DEFINE_float('learning_rate', 0.0002,
                           """Learning rate suggested in paper.""")
 tf.app.flags.DEFINE_float('beta1', 0.5,
                           """Beta1 suggested in paper.""")
-tf.app.flags.DEFINE_float('beta2', 0.99,
+tf.app.flags.DEFINE_float('beta2', 0.55,
                           """Beta2 for adam optimizer.""")
 tf.app.flags.DEFINE_float('weight_init', 0.02,
                           """Weight initialization standard deviation.""")
@@ -67,17 +67,25 @@ DECONV5_NUM_FILTERS = 3
 DECONV5_OUT_SIZE = 128
 
 # Discriminator Layers
-CONV0_FILTER_SIZE = 2
+CONV0_FILTER_SIZE = 3
 CONV0_FILTER_STRIDE = 2
-CONV0_NUM_FILTERS = 128
+CONV0_NUM_FILTERS = 64
 
-CONV1_FILTER_SIZE = 2
+CONV1_FILTER_SIZE = 3
 CONV1_FILTER_STRIDE = 2
-CONV1_NUM_FILTERS = 256
+CONV1_NUM_FILTERS = 128
 
-CONV2_FILTER_SIZE = 2
+CONV2_FILTER_SIZE = 3
 CONV2_FILTER_STRIDE = 2
-CONV2_NUM_FILTERS = 512
+CONV2_NUM_FILTERS = 128
+
+CONV3_FILTER_SIZE = 3
+CONV3_FILTER_STRIDE = 2
+CONV3_NUM_FILTERS = 256
+
+CONV4_FILTER_SIZE = 3
+CONV4_FILTER_STRIDE = 2
+CONV4_NUM_FILTERS = 256
 
 
 def leaky_relu(x, alpha, name):
@@ -298,11 +306,35 @@ def discriminator(input_tensor, mode_tensor):
                                                   name),
                        True,
                        'conv2')
+    conv3 = conv_layer(conv2, 
+                       mode_tensor,
+                       FLAGS.weight_init,
+                       CONV3_FILTER_SIZE,
+                       CONV3_FILTER_STRIDE,
+                       CONV3_NUM_FILTERS,
+                       CONV2_NUM_FILTERS,
+                       lambda x, name: leaky_relu(x, 
+                                                  FLAGS.relu_slope, 
+                                                  name),
+                       True,
+                       'conv3')
+    conv4 = conv_layer(conv3, 
+                       mode_tensor,
+                       FLAGS.weight_init,
+                       CONV4_FILTER_SIZE,
+                       CONV4_FILTER_STRIDE,
+                       CONV4_NUM_FILTERS,
+                       CONV3_NUM_FILTERS,
+                       lambda x, name: leaky_relu(x, 
+                                                  FLAGS.relu_slope, 
+                                                  name),
+                       True,
+                       'conv4')
 
     # Make the output a probability.
-    num_parameters = CONV2_FILTER_SIZE * CONV2_FILTER_SIZE * \
-            CONV2_NUM_FILTERS
-    conv2_flatten = tf.reshape(conv2,
+    num_parameters = CONV4_FILTER_SIZE * CONV4_FILTER_SIZE * \
+            CONV4_NUM_FILTERS
+    conv4_flatten = tf.reshape(conv4,
                                shape=[-1, num_parameters],
                                name='final_input')
     # weights = np.random.normal(scale=FLAGS.weight_init, 
@@ -318,16 +350,24 @@ def discriminator(input_tensor, mode_tensor):
                            shape=[1],
                            initializer=tf.constant_initializer())
 
-    disc_out = tf.sigmoid(tf.matmul(conv2_flatten, weights) + bias,
+    disc_out = tf.sigmoid(tf.matmul(conv4_flatten, weights) + bias,
                           name='output')
     return disc_out
 
 
 def add_optimization(learning_rate, beta1, beta2, disc_gen, disc_true, 
                      gen_label, disc_label):
-    gen_loss = tf.reduce_mean(-tf.log(1 - disc_gen), name='gen_loss')
-    disc_loss = tf.sub(tf.reduce_mean(tf.log(disc_true)), gen_loss,
-                       name='disc_loss')
+    # gen_loss = tf.reduce_mean(-tf.log(1 - disc_gen), name='gen_loss')
+    # disc_loss = tf.sub(tf.reduce_mean(tf.log(disc_true)), gen_loss,
+    #                    name='disc_loss')
+    gen_loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(
+        disc_gen, tf.ones_like(disc_gen)), name='gen_loss')
+
+    disc_g_loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(
+        disc_gen, tf.zeros_like(disc_gen)))
+    disc_x_loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(
+        disc_true, tf.ones_like(disc_true)))
+    disc_loss = tf.add(disc_g_loss, disc_x_loss, name='disc_loss')
     
     gen_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES,
                                  scope=gen_label)
