@@ -117,6 +117,10 @@ def batch_norm(x, n_out, phase_train, name='bn'):
                         lambda: (ema.average(batch_mean), 
                                  ema.average(batch_var)))
     normed = tf.nn.batch_normalization(x, mean, var, beta, gamma, 1e-3)
+    if not tf.get_variable_scope().reuse:
+        tf.histogram_summary('summary/' + name + '/beta', beta)
+        tf.histogram_summary('summary/' + name + '/gamma', gamma)
+        tf.histogram_summary('summary/' + name + '/normed', normed)
     return normed
 
 
@@ -144,6 +148,10 @@ def conv_layer(input_tensor, mode_tensor, weight_init, filter_size,
             
     activation = nonlinear_func(tf.nn.bias_add(conv, bias), 
                                 name=name + '/activation')
+
+    if not tf.get_variable_scope().reuse:
+        tf.histogram_summary('summary/' + name + '/weights', conv_weights)
+        tf.histogram_summary('summary/' + name + '/activations', activation)
     return activation
 
 
@@ -177,6 +185,10 @@ def deconv_layer(input_tensor, mode_tensor, weight_init, filter_size,
 
     activation = nonlinear_func(tf.nn.bias_add(deconv, bias), 
                                 name=name + '/activation')
+
+    if not tf.get_variable_scope().reuse:
+        tf.histogram_summary('summary/' + name + '/weights', deconv_weights)
+        tf.histogram_summary('summary/' + name + '/activations', activation)
     return activation
 
 
@@ -350,8 +362,10 @@ def discriminator(input_tensor, mode_tensor):
                            shape=[1],
                            initializer=tf.constant_initializer())
 
-    disc_out = tf.sigmoid(tf.matmul(conv4_flatten, weights) + bias,
-                          name='output')
+    # disc_out = tf.sigmoid(tf.matmul(conv4_flatten, weights) + bias,
+    #                       name='output')
+    disc_out = tf.add(tf.matmul(conv4_flatten, weights), bias,
+                      name='output')
     return disc_out
 
 
@@ -434,9 +448,13 @@ def main(_):
     init = tf.initialize_all_variables()
     sess.run(init)
 
+    merged = tf.merge_all_summaries()
     writer = tf.train.SummaryWriter(FLAGS.summary_dir, sess.graph)
     saver = tf.train.Saver(max_to_keep=1)
-    img_summary = tf.image_summary('Generator Images', gen_out)
+    gen_to_img = tf.cast((gen_out + 1) * 255 / 2,
+                         tf.uint8,
+                         name='generated_image')
+    img_summary = tf.image_summary('Generator Images', gen_to_img)
     gen_loss_summ = tf.scalar_summary('Generator Loss', gen_loss)
     disc_loss_summ = tf.scalar_summary('Discriminator Loss', disc_loss)
 
@@ -452,11 +470,11 @@ def main(_):
                                              FLAGS.batch_size,
                                              image_data_tensor,
                                              decode_tensor)
-        results = sess.run([disc_loss, disc_loss_summ, disc_step], 
+        results = sess.run([disc_loss, disc_loss_summ, merged, disc_step], 
                            feed_dict={z: batch_z, 
                                       x_true: batch_imgs, 
                                       mode_tensor: 'train'})
-        step_loss, disc_loss_str, _ = results
+        step_loss, disc_loss_str, merged_str, _ = results
         print '{} | Step {} | Loss = {}'.format(datetime.now(), 
                                                 step, 
                                                 step_loss)
@@ -467,6 +485,7 @@ def main(_):
                                    feed_dict={z: batch_z,
                                               mode_tensor: 'train'})
 
+        writer.add_summary(merged_str, step)
         writer.add_summary(disc_loss_str, step)
         writer.add_summary(gen_loss_str, step)
 
