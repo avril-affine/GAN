@@ -21,8 +21,8 @@ tf.app.flags.DEFINE_float('weight_init', 0.02,
                           """Weight initialization standard deviation.""")
 tf.app.flags.DEFINE_float('relu_slope', 0.2,
                           """Slope to use for leaky ReLU.""")
-tf.app.flags.DEFINE_integer('z_size', 10,
-                            """Square root size for input vector """
+tf.app.flags.DEFINE_integer('z_size', 100,
+                            """Size of random noise input vector """
                             """for generator.""")
 tf.app.flags.DEFINE_integer('batch_size', 128,
                             """Batch size for training.""")
@@ -37,8 +37,10 @@ INPUT_CHANNELS = 3
 
 # Generator Layers
 # TODO: Make sure deconv filter size is right
-DECONV0_FILTER_SIZE = 7
-DECONV0_FILTER_STRIDE = 1
+# DECONV0_FILTER_SIZE = 7
+# DECONV0_FILTER_STRIDE = 1
+# DECONV0_NUM_FILTERS = 1024
+DECONV0_FILTER_SIZE = 4
 DECONV0_NUM_FILTERS = 1024
 
 DECONV1_FILTER_SIZE = 5     # Is this right filter size?
@@ -67,25 +69,25 @@ DECONV5_NUM_FILTERS = 3
 DECONV5_OUT_SIZE = 128
 
 # Discriminator Layers
-CONV0_FILTER_SIZE = 3
+CONV0_FILTER_SIZE = 5
 CONV0_FILTER_STRIDE = 2
 CONV0_NUM_FILTERS = 64
 
-CONV1_FILTER_SIZE = 3
+CONV1_FILTER_SIZE = 5
 CONV1_FILTER_STRIDE = 2
 CONV1_NUM_FILTERS = 128
 
-CONV2_FILTER_SIZE = 3
+CONV2_FILTER_SIZE = 5
 CONV2_FILTER_STRIDE = 2
-CONV2_NUM_FILTERS = 128
+CONV2_NUM_FILTERS = 256
 
-CONV3_FILTER_SIZE = 3
+CONV3_FILTER_SIZE = 5
 CONV3_FILTER_STRIDE = 2
-CONV3_NUM_FILTERS = 256
+CONV3_NUM_FILTERS = 512
 
-CONV4_FILTER_SIZE = 3
+CONV4_FILTER_SIZE = 5
 CONV4_FILTER_STRIDE = 2
-CONV4_NUM_FILTERS = 256
+CONV4_NUM_FILTERS = 1024
 
 
 def leaky_relu(x, alpha, name):
@@ -98,7 +100,7 @@ def batch_norm(x, n_out, phase_train, name='bn'):
                            initializer=tf.constant_initializer())
     gamma = tf.get_variable(name + '/gamma',
                             shape=[n_out],
-                            initializer=tf.constant_initializer(1.0))
+                            initializer=tf.random_normal_initializer(1., 0.02))
     # beta = tf.Variable(tf.constant(0.0, shape=[n_out]),
     #                                name='beta', trainable=True)
     # gamma = tf.Variable(tf.constant(1.0, shape=[n_out]),
@@ -116,11 +118,11 @@ def batch_norm(x, n_out, phase_train, name='bn'):
                         mean_var_with_update,
                         lambda: (ema.average(batch_mean), 
                                  ema.average(batch_var)))
-    normed = tf.nn.batch_normalization(x, mean, var, beta, gamma, 1e-3)
+    normed = tf.nn.batch_normalization(x, mean, var, beta, gamma, 1e-5)
     if not tf.get_variable_scope().reuse:
-        tf.histogram_summary('summary/' + name + '/beta', beta)
-        tf.histogram_summary('summary/' + name + '/gamma', gamma)
-        tf.histogram_summary('summary/' + name + '/normed', normed)
+        tf.histogram_summary('summary/beta/' + name, beta)
+        tf.histogram_summary('summary/gamma/' + name, gamma)
+        tf.histogram_summary('summary/normed/' + name, normed)
     return normed
 
 
@@ -139,7 +141,7 @@ def conv_layer(input_tensor, mode_tensor, weight_init, filter_size,
 
     # Apply convolution
     stride = [1, filter_stride, filter_stride, 1]
-    conv = tf.nn.conv2d(input_tensor, conv_weights, stride, padding='VALID',
+    conv = tf.nn.conv2d(input_tensor, conv_weights, stride, padding='SAME',
                         name=name + '/affine')
     # Apply batchnorm
     if use_batchnorm:
@@ -150,8 +152,8 @@ def conv_layer(input_tensor, mode_tensor, weight_init, filter_size,
                                 name=name + '/activation')
 
     if not tf.get_variable_scope().reuse:
-        tf.histogram_summary('summary/' + name + '/weights', conv_weights)
-        tf.histogram_summary('summary/' + name + '/activations', activation)
+        tf.histogram_summary('summary/weights/' + name, conv_weights)
+        tf.histogram_summary('summary/activations/' + name, activation)
     return activation
 
 
@@ -187,8 +189,8 @@ def deconv_layer(input_tensor, mode_tensor, weight_init, filter_size,
                                 name=name + '/activation')
 
     if not tf.get_variable_scope().reuse:
-        tf.histogram_summary('summary/' + name + '/weights', deconv_weights)
-        tf.histogram_summary('summary/' + name + '/activations', activation)
+        tf.histogram_summary('summary/weights/' + name, deconv_weights)
+        tf.histogram_summary('summary/activations/' + name, activation)
     return activation
 
 
@@ -206,23 +208,39 @@ def get_random_input_images(sess, image_dir, batch_size,
         image_data = gfile.FastGFile(image_path, 'rb').read()
         image = sess.run(decode_tensor, 
                          feed_dict={image_data_tensor: image_data})
+        image = image * 2. / 255. - 1.
         images.append(image)
     return images
 
 
 def generator(input_tensor, mode_tensor):
-    z_in = tf.reshape(input_tensor, 
-                      shape=[-1, FLAGS.z_size, FLAGS.z_size, 1])
-    deconv0 = conv_layer(z_in, 
-                         mode_tensor,
-                         FLAGS.weight_init,
-                         DECONV0_FILTER_SIZE,
-                         DECONV0_FILTER_STRIDE,
-                         DECONV0_NUM_FILTERS,
-                         1,
-                         tf.nn.relu,
-                         True,
-                         'deconv0')
+    num_features = DECONV0_FILTER_SIZE * DECONV0_FILTER_SIZE * \
+            DECONV0_NUM_FILTERS
+    initializer = tf.random_normal_initializer(stddev=FLAGS.weight_init)
+    proj_weights = tf.get_variable('deconv0/weights',
+                                   shape=[FLAGS.z_size, num_features],
+                                   initializer=initializer)
+    proj_bias = tf.get_variable('deconv0/bias',
+                                shape=[num_features],
+                                initializer=tf.constant_initializer())
+    deconv0 = tf.matmul(input_tensor, proj_weights) + proj_bias
+    deconv0 = tf.reshape(deconv0, [-1, 
+                                   DECONV0_FILTER_SIZE,
+                                   DECONV0_FILTER_SIZE,
+                                   DECONV0_NUM_FILTERS])
+    deconv0 = tf.nn.relu(deconv0, name='deconv0')
+    # z_in = tf.reshape(input_tensor, 
+    #                   shape=[-1, FLAGS.z_size, FLAGS.z_size, 1])
+    # deconv0 = conv_layer(z_in, 
+    #                      mode_tensor,
+    #                      FLAGS.weight_init,
+    #                      DECONV0_FILTER_SIZE,
+    #                      DECONV0_FILTER_STRIDE,
+    #                      DECONV0_NUM_FILTERS,
+    #                      1,
+    #                      tf.nn.relu,
+    #                      True,
+    #                      'deconv0')
     deconv1 = deconv_layer(deconv0, 
                            mode_tensor,
                            FLAGS.weight_init,
@@ -277,7 +295,7 @@ def generator(input_tensor, mode_tensor):
                            DECONV5_OUT_SIZE,
                            tf.tanh,
                            True,
-                           'output')
+                           'gen_out')
     return gen_out
 
 
@@ -344,10 +362,10 @@ def discriminator(input_tensor, mode_tensor):
                        'conv4')
 
     # Make the output a probability.
-    num_parameters = CONV4_FILTER_SIZE * CONV4_FILTER_SIZE * \
-            CONV4_NUM_FILTERS
+    # num_parameters = CONV4_FILTER_SIZE * CONV4_FILTER_SIZE * \
+    #         CONV4_NUM_FILTERS
     conv4_flatten = tf.reshape(conv4,
-                               shape=[-1, num_parameters],
+                               shape=[FLAGS.batch_size, -1],
                                name='final_input')
     # weights = np.random.normal(scale=FLAGS.weight_init, 
     #                            size=[num_parameters, 1])
@@ -355,8 +373,11 @@ def discriminator(input_tensor, mode_tensor):
     # bias = np.zeros(size=[1])
     # bias = tf.Variable(bias, dtype=np.float32, name='final_bias')
     initializer = tf.random_normal_initializer(stddev=FLAGS.weight_init)
+    # weights = tf.get_variable('final_weights',
+    #                           shape=[num_parameters, 1],
+    #                           initializer=initializer)
     weights = tf.get_variable('final_weights',
-                              shape=[num_parameters, 1],
+                              shape=[conv4_flatten.get_shape()[-1], 1],
                               initializer=initializer)
     bias = tf.get_variable('final_bias',
                            shape=[1],
@@ -365,7 +386,7 @@ def discriminator(input_tensor, mode_tensor):
     # disc_out = tf.sigmoid(tf.matmul(conv4_flatten, weights) + bias,
     #                       name='output')
     disc_out = tf.add(tf.matmul(conv4_flatten, weights), bias,
-                      name='output')
+                      name='disc_out')
     return disc_out
 
 
@@ -412,7 +433,7 @@ def main(_):
     mode_tensor = tf.placeholder(tf.string, shape=[], name='mode')
     with tf.variable_scope(generator_label):
         z = tf.placeholder(tf.float32, 
-                           shape=[None, int(FLAGS.z_size ** 2)], 
+                           shape=[None, FLAGS.z_size], 
                            name='Z')
         gen_out = generator(z, mode_tensor)
 
@@ -464,7 +485,7 @@ def main(_):
 
     for step in xrange(FLAGS.num_steps):
         # Discriminator update step.
-        batch_z = get_random_z(FLAGS.batch_size, int(FLAGS.z_size ** 2))
+        batch_z = get_random_z(FLAGS.batch_size, FLAGS.z_size)
         batch_imgs = get_random_input_images(sess,
                                              FLAGS.image_dir,
                                              FLAGS.batch_size,
@@ -480,10 +501,12 @@ def main(_):
                                                 step_loss)
 
         # Generator update step.
-        # batch_z = get_random_z(FLAGS.batch_size, int(FLAGS.z_size ** 2))
+        # batch_z = get_random_z(FLAGS.batch_size, FLAGS.z_size))
         gen_loss_str, _ = sess.run([gen_loss_summ, gen_step],
                                    feed_dict={z: batch_z,
                                               mode_tensor: 'train'})
+        sess.run(gen_step,
+                 feed_dict={z: batch_z, mode_tensor: 'train'})
 
         writer.add_summary(merged_str, step)
         writer.add_summary(disc_loss_str, step)
@@ -491,10 +514,10 @@ def main(_):
 
         if step % n_epoch == 0 or step + 1 == FLAGS.num_steps:
             print 'Writing test image'
-            img_summary_str = sess.run(img_summary,
-                                       feed_dict={z: batch_z,
-                                                  mode_tensor: 'test'})
-            writer.add_summary(img_summary_str, step)
+            img_str = sess.run(img_summary,
+                               feed_dict={z: batch_z,
+                                          mode_tensor: 'test'})
+            writer.add_summary(img_str, step)
             model_path = os.path.join(FLAGS.summary_dir, 'model.ckpt')
             saver.save(sess, model_path, global_step=step)
 

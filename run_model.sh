@@ -1,7 +1,7 @@
-STEPS=2000
+STEPS=20000
 LR=0.0002
 BETA1=0.5
-BETA2=0.55
+BETA2=0.99
 WEIGHT_INIT=0.02
 RELU_SLOPE=0.2
 Z_SIZE=10
@@ -9,8 +9,8 @@ BATCH_SIZE=128
 SUMMARY_DIR="logs"
 IMAGE_DIR="flickr_resize"
 
-python scrape_images.py
-python convert_images.py
+# python scrape_images.py
+# python convert_images.py
 python model.py \
     --num_steps=$STEPS \
     --learning_rate=$LR \
