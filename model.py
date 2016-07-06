@@ -1,6 +1,7 @@
 import tensorflow as tf
 import numpy as np
 import os
+import re
 
 from tensorflow.python.platform import gfile
 from datetime import datetime
@@ -466,12 +467,25 @@ def main(_):
 
     # Create graph
     sess = tf.Session()
-    init = tf.initialize_all_variables()
-    sess.run(init)
+    saver = tf.train.Saver()
+
+    checkpoint_file = os.path.join(FLAGS.summary_dir, 'checkpoint')
+    step_0 = 0
+    if os.path.exists(checkpoint_file):
+        print 'Restoring checkpoint'
+        with open(checkpoint_file, 'r') as f:
+            line = f.readline().strip()
+        model_ckpt = line.split(': ')[1]
+        model_ckpt = model_ckpt.strip('"')
+        step_0 = int(model_ckpt.split('-')[-1])
+        model_ckpt = os.path.join(FLAGS.summary_dir, model_ckpt)
+        saver.restore(sess, model_ckpt)
+    else:
+        init = tf.initialize_all_variables()
+        sess.run(init)
 
     merged = tf.merge_all_summaries()
     writer = tf.train.SummaryWriter(FLAGS.summary_dir, sess.graph)
-    saver = tf.train.Saver(max_to_keep=1)
     gen_to_img = tf.cast((gen_out + 1) * 255 / 2,
                          tf.uint8,
                          name='generated_image')
@@ -483,7 +497,7 @@ def main(_):
                    if not f.startswith('.')])
     n_epoch = n_train / FLAGS.batch_size
 
-    for step in xrange(FLAGS.num_steps):
+    for step in xrange(step_0 + 1, FLAGS.num_steps):
         # Discriminator update step.
         batch_z = get_random_z(FLAGS.batch_size, FLAGS.z_size)
         batch_imgs = get_random_input_images(sess,
@@ -518,8 +532,8 @@ def main(_):
                                feed_dict={z: batch_z,
                                           mode_tensor: 'test'})
             writer.add_summary(img_str, step)
-            model_path = os.path.join(FLAGS.summary_dir, 'model.ckpt')
-            saver.save(sess, model_path, global_step=step)
+            model_file = os.path.join(FLAGS.summary_dir, 'model.ckpt')
+            saver.save(sess, model_file, global_step=step)
 
     wrtier.close()
 
