@@ -489,7 +489,7 @@ def main(_):
     gen_to_img = tf.cast((gen_out + 1) * 255 / 2,
                          tf.uint8,
                          name='generated_image')
-    img_summary = tf.image_summary('Generator Images', gen_to_img)
+    img_summary = tf.image_summary('Generator Images', gen_to_img, 10)
     gen_loss_summ = tf.scalar_summary('Generator Loss', gen_loss)
     disc_loss_summ = tf.scalar_summary('Discriminator Loss', disc_loss)
 
@@ -526,7 +526,7 @@ def main(_):
         writer.add_summary(disc_loss_str, step)
         writer.add_summary(gen_loss_str, step)
 
-        if step % n_epoch == 0 or step + 1 == FLAGS.num_steps:
+        if step % 100 == 0 or step + 1 == FLAGS.num_steps:
             print 'Writing test image'
             img_str = sess.run(img_summary,
                                feed_dict={z: batch_z,
