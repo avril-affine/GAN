@@ -535,7 +535,7 @@ def main(_):
             model_file = os.path.join(FLAGS.summary_dir, 'model.ckpt')
             saver.save(sess, model_file, global_step=step)
 
-    wrtier.close()
+    writer.close()
 
 
 if __name__ == '__main__':
