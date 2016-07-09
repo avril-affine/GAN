@@ -10,7 +10,7 @@ SUMMARY_DIR="logs"
 IMAGE_DIR="flickr_resize"
 
 # python scrape_images.py
-# python convert_images.py 64
+python convert_images.py 128
 python model.py \
     --num_steps=$STEPS \
     --learning_rate=$LR \
