@@ -57,7 +57,8 @@ DECONV3_OUT_SIZE = 32
 
 DECONV4_FILTER_SIZE = 5     # Is this right filter size?
 DECONV4_FILTER_STRIDE = 2
-DECONV4_NUM_FILTERS = 16
+# DECONV4_NUM_FILTERS = 16
+DECONV4_NUM_FILTERS = 3
 DECONV4_OUT_SIZE = 64
 
 DECONV5_FILTER_SIZE = 5     # Is this right filter size?
@@ -214,10 +215,14 @@ def generator(input_tensor, mode_tensor):
                                 shape=[num_features],
                                 initializer=tf.constant_initializer())
     deconv0 = tf.matmul(input_tensor, proj_weights) + proj_bias
+
     deconv0 = tf.reshape(deconv0, [-1,
                                    DECONV0_FILTER_SIZE,
                                    DECONV0_FILTER_SIZE,
                                    DECONV0_NUM_FILTERS])
+    deconv0 = batch_norm(deconv0, DECONV0_NUM_FILTERS,
+                         tf.equal(mode_tensor, 'train'),
+                         'deconv0')
     deconv0 = tf.nn.relu(deconv0, name='deconv0')
     deconv1 = deconv_layer(deconv0,
                            mode_tensor,
@@ -252,7 +257,7 @@ def generator(input_tensor, mode_tensor):
                            tf.nn.relu,
                            True,
                            'deconv3')
-    deconv4 = deconv_layer(deconv3,
+    gen_out = deconv_layer(deconv3,
                            mode_tensor,
                            FLAGS.weight_init,
                            DECONV4_FILTER_SIZE,
@@ -260,20 +265,20 @@ def generator(input_tensor, mode_tensor):
                            DECONV4_NUM_FILTERS,
                            DECONV3_NUM_FILTERS,
                            DECONV4_OUT_SIZE,
-                           tf.nn.relu,
-                           True,
+                           tf.nn.tanh,
+                           False,
                            'deconv4')
-    gen_out = deconv_layer(deconv4,
-                           mode_tensor,
-                           FLAGS.weight_init,
-                           DECONV5_FILTER_SIZE,
-                           DECONV5_FILTER_STRIDE,
-                           DECONV5_NUM_FILTERS,
-                           DECONV4_NUM_FILTERS,
-                           DECONV5_OUT_SIZE,
-                           tf.tanh,
-                           True,
-                           'gen_out')
+    # gen_out = deconv_layer(deconv4,
+    #                        mode_tensor,
+    #                        FLAGS.weight_init,
+    #                        DECONV5_FILTER_SIZE,
+    #                        DECONV5_FILTER_STRIDE,
+    #                        DECONV5_NUM_FILTERS,
+    #                        DECONV4_NUM_FILTERS,
+    #                        DECONV5_OUT_SIZE,
+    #                        tf.tanh,
+    #                        True,
+    #                        'gen_out')
     return gen_out
 
 
@@ -326,21 +331,21 @@ def discriminator(input_tensor, mode_tensor):
                                                   name),
                        True,
                        'conv3')
-    conv4 = conv_layer(conv3,
-                       mode_tensor,
-                       FLAGS.weight_init,
-                       CONV4_FILTER_SIZE,
-                       CONV4_FILTER_STRIDE,
-                       CONV4_NUM_FILTERS,
-                       CONV3_NUM_FILTERS,
-                       lambda x, name: leaky_relu(x,
-                                                  FLAGS.relu_slope,
-                                                  name),
-                       True,
-                       'conv4')
+    # conv4 = conv_layer(conv3,
+    #                    mode_tensor,
+    #                    FLAGS.weight_init,
+    #                    CONV4_FILTER_SIZE,
+    #                    CONV4_FILTER_STRIDE,
+    #                    CONV4_NUM_FILTERS,
+    #                    CONV3_NUM_FILTERS,
+    #                    lambda x, name: leaky_relu(x,
+    #                                               FLAGS.relu_slope,
+    #                                               name),
+    #                    True,
+    #                    'conv4')
 
     # Make the output a probability.
-    conv4_flatten = tf.reshape(conv4,
+    conv4_flatten = tf.reshape(conv3,
                                shape=[FLAGS.batch_size, -1],
                                name='final_input')
     initializer = tf.random_normal_initializer(stddev=FLAGS.weight_init)
@@ -406,8 +411,8 @@ def main(_):
         scope.reuse_variables()
         x_true = tf.placeholder(tf.float32,
                                 shape=[None,
-                                       DECONV5_OUT_SIZE,
-                                       DECONV5_OUT_SIZE,
+                                       DECONV4_OUT_SIZE,
+                                       DECONV4_OUT_SIZE,
                                        INPUT_CHANNELS],
                                 name='X_true')
         disc_true = discriminator(x_true, mode_tensor)
