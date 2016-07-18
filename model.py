@@ -27,6 +27,11 @@ tf.app.flags.DEFINE_integer('z_size', 100,
                             """for generator.""")
 tf.app.flags.DEFINE_integer('batch_size', 128,
                             """Batch size for training.""")
+tf.app.flags.DEFINE_integer('max_disc_steps', 3,
+                            """Max number of steps to take for """
+                            """discriminator.""")
+tf.app.flags.DEFINE_integer('max_gen_steps', 10,
+                            """Max number of steps to take for generator.""")
 
 tf.app.flags.DEFINE_string('summary_dir', 'logs/',
                            """Path of where to store the summary files.""")
@@ -480,13 +485,23 @@ def main(_):
         print '{} | Step {} | Loss = {}'.format(datetime.now(),
                                                 step,
                                                 step_loss)
+        disc_steps = 0
+        while disc_steps < FLAGS.max_disc_steps and step_loss > 1.4:
+            step_loss, _ = sess.run([disc_loss, disc_step],
+                                    feed_dict={z: batch_z,
+                                               x_true: batch_imgs,
+                                               mode_tensor: 'train'})
+            disc_steps += 1
 
-        # Generator update step. Run twice to offset discriminator.
-        gen_loss_str, _ = sess.run([gen_loss_summ, gen_step],
-                                   feed_dict={z: batch_z,
-                                              mode_tensor: 'train'})
-        sess.run(gen_step,
-                 feed_dict={z: batch_z, mode_tensor: 'train'})
+        # Generator update step. Run multiple times to offset discriminator.
+        g_loss, gen_loss_str, _ = sess.run([gen_loss, gen_loss_summ, gen_step],
+                                           feed_dict={z: batch_z,
+                                                      mode_tensor: 'train'})
+        gen_steps = 0
+        while gen_steps < FLAGS.max_gen_steps and g_loss > 0.7:
+            g_loss, _ = sess.run([gen_loss, gen_step],
+                                 feed_dict={z: batch_z, mode_tensor: 'train'})
+            gen_steps += 1
 
         writer.add_summary(merged_str, step)
         writer.add_summary(disc_loss_str, step)
