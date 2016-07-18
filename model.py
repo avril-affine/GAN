@@ -486,7 +486,7 @@ def main(_):
                                                 step,
                                                 step_loss)
         disc_steps = 0
-        while disc_steps < FLAGS.max_disc_steps and step_loss > 1.4:
+        while disc_steps < FLAGS.max_disc_steps and step_loss > 1.3:
             step_loss, _ = sess.run([disc_loss, disc_step],
                                     feed_dict={z: batch_z,
                                                x_true: batch_imgs,
@@ -498,7 +498,7 @@ def main(_):
                                            feed_dict={z: batch_z,
                                                       mode_tensor: 'train'})
         gen_steps = 0
-        while gen_steps < FLAGS.max_gen_steps and g_loss > 0.7:
+        while gen_steps < FLAGS.max_gen_steps and g_loss > 0.5:
             g_loss, _ = sess.run([gen_loss, gen_step],
                                  feed_dict={z: batch_z, mode_tensor: 'train'})
             gen_steps += 1

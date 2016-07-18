@@ -4,12 +4,12 @@ from PIL import Image
 
 
 def main():
-    if len(sys.argv) != 2:
-        print 'Input dimensions of output image'
+    if len(sys.argv) != 4:
+        print 'Wrong number of inputs'
         return
 
-    image_dir = 'flickr'
-    output_dir = 'flickr_resize'
+    image_dir = sys.argv[2]
+    output_dir = sys.argv[3]
 
     dim = int(sys.argv[1])
     out_size = (dim, dim)

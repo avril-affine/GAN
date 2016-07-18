@@ -5,12 +5,13 @@ BETA2=0.99
 WEIGHT_INIT=0.02
 RELU_SLOPE=0.2
 Z_SIZE=100
-BATCH_SIZE=64
+BATCH_SIZE=128
 SUMMARY_DIR="logs"
-IMAGE_DIR="flickr_resize"
+INIT_DIR="dog_images"
+IMAGE_DIR="dog_images_resize"
 
 # python scrape_images.py
-python convert_images.py 128
+python convert_images.py 128 $INIT_DIR $IMAGE_DIR
 python model.py \
     --num_steps=$STEPS \
     --learning_rate=$LR \

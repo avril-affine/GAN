@@ -7,7 +7,6 @@
 ##############################################################################
 
 import pandas as pd
-import matplotlib.pyplot as plt
 import json
 import os
 import urllib, urlparse
@@ -24,7 +23,7 @@ def get_flickr_keys():
     Return flckr key and secret key.
     '''
     # Get skey and ecret key for the flikr api
-    with open('/Users/PANDA/Dropbox/flickr_key.json') as f:
+    with open('/home/panda/Dropbox/flickr_key.json') as f:
         data = json.load(f)
         api_key = data['Key']
         api_secret = data['Secret']
@@ -120,5 +119,5 @@ def flkr_search(type, tags):
         
 
 if __name__ == '__main__':
-    flkr_search('tag', ['cute puppy'])
-    flkr_search('text', ['cute puppy'])
+    flkr_search('tag', ['puppy'])
+    flkr_search('text', ['puppy'])
