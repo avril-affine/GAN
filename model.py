@@ -262,28 +262,41 @@ def generator(input_tensor, mode_tensor):
                            tf.nn.relu,
                            True,
                            'deconv3')
-    deconv4 = deconv_layer(deconv3,
+    # 64 x 64 image
+    gen_out = deconv_layer(deconv3,
                            mode_tensor,
                            FLAGS.weight_init,
                            DECONV4_FILTER_SIZE,
                            DECONV4_FILTER_STRIDE,
-                           DECONV4_NUM_FILTERS,
+                           DECONV5_NUM_FILTERS,
                            DECONV3_NUM_FILTERS,
                            DECONV4_OUT_SIZE,
-                           tf.nn.relu,
-                           True,
-                           'deconv4')
-    gen_out = deconv_layer(deconv4,
-                           mode_tensor,
-                           FLAGS.weight_init,
-                           DECONV5_FILTER_SIZE,
-                           DECONV5_FILTER_STRIDE,
-                           DECONV5_NUM_FILTERS,
-                           DECONV4_NUM_FILTERS,
-                           DECONV5_OUT_SIZE,
-                           tf.tanh,
+                           tf.nn.tanh,
                            False,
-                           'gen_out')
+                           'deconv4')
+    # 128 x 128 image
+    # deconv4 = deconv_layer(deconv3,
+    #                        mode_tensor,
+    #                        FLAGS.weight_init,
+    #                        DECONV4_FILTER_SIZE,
+    #                        DECONV4_FILTER_STRIDE,
+    #                        DECONV4_NUM_FILTERS,
+    #                        DECONV3_NUM_FILTERS,
+    #                        DECONV4_OUT_SIZE,
+    #                        tf.nn.relu,
+    #                        True,
+    #                        'deconv4')
+    # gen_out = deconv_layer(deconv4,
+    #                        mode_tensor,
+    #                        FLAGS.weight_init,
+    #                        DECONV5_FILTER_SIZE,
+    #                        DECONV5_FILTER_STRIDE,
+    #                        DECONV5_NUM_FILTERS,
+    #                        DECONV4_NUM_FILTERS,
+    #                        DECONV5_OUT_SIZE,
+    #                        tf.tanh,
+    #                        False,
+    #                        'gen_out')
     return gen_out
 
 
@@ -336,18 +349,21 @@ def discriminator(input_tensor, mode_tensor):
                                                   name),
                        True,
                        'conv3')
-    conv4 = conv_layer(conv3,
-                       mode_tensor,
-                       FLAGS.weight_init,
-                       CONV4_FILTER_SIZE,
-                       CONV4_FILTER_STRIDE,
-                       CONV4_NUM_FILTERS,
-                       CONV3_NUM_FILTERS,
-                       lambda x, name: leaky_relu(x,
-                                                  FLAGS.relu_slope,
-                                                  name),
-                       True,
-                       'conv4')
+    # 64 x 64 image
+    conv4 = conv3
+    # 128 x 128 image
+    # conv4 = conv_layer(conv3,
+    #                    mode_tensor,
+    #                    FLAGS.weight_init,
+    #                    CONV4_FILTER_SIZE,
+    #                    CONV4_FILTER_STRIDE,
+    #                    CONV4_NUM_FILTERS,
+    #                    CONV3_NUM_FILTERS,
+    #                    lambda x, name: leaky_relu(x,
+    #                                               FLAGS.relu_slope,
+    #                                               name),
+    #                    True,
+    #                    'conv4')
 
     # Make the output a probability.
     conv4_flatten = tf.reshape(conv4,
@@ -479,7 +495,7 @@ def main(_):
                                              FLAGS.batch_size,
                                              image_data_tensor,
                                              decode_tensor)
-        if g_loss < 0.1 or step_loss > 0.15:
+        if g_loss < 0.05 or step_loss > 0.05:
             results = sess.run([disc_loss, disc_loss_summ, merged, disc_step],
                                feed_dict={z: batch_z,
                                           x_true: batch_imgs,
@@ -488,7 +504,7 @@ def main(_):
             print '{} | Step {} | Loss = {}'.format(datetime.now(),
                                                     step,
                                                     step_loss)
-        disc_steps = 0
+        # disc_steps = 0
         # while disc_steps < FLAGS.max_disc_steps and step_loss > 1.3:
         #     step_loss, _ = sess.run([disc_loss, disc_step],
         #                             feed_dict={z: batch_z,
@@ -500,7 +516,7 @@ def main(_):
         g_loss, gen_loss_str, _ = sess.run([gen_loss, gen_loss_summ, gen_step],
                                            feed_dict={z: batch_z,
                                                       mode_tensor: 'train'})
-        gen_steps = 0
+        # gen_steps = 0
         # while gen_steps < FLAGS.max_gen_steps and g_loss > 0.5:
         #     g_loss, _ = sess.run([gen_loss, gen_step],
         #                          feed_dict={z: batch_z, mode_tensor: 'train'})
