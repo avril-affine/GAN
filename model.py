@@ -469,6 +469,8 @@ def main(_):
                    if not f.startswith('.')])
     n_epoch = n_train / FLAGS.batch_size
 
+    g_loss = 0.
+    step_loss = 0.
     for step in xrange(step_0 + 1, FLAGS.num_steps):
         # Discriminator update step.
         batch_z = get_random_z(FLAGS.batch_size, FLAGS.z_size)
@@ -477,31 +479,32 @@ def main(_):
                                              FLAGS.batch_size,
                                              image_data_tensor,
                                              decode_tensor)
-        results = sess.run([disc_loss, disc_loss_summ, merged, disc_step],
-                           feed_dict={z: batch_z,
-                                      x_true: batch_imgs,
-                                      mode_tensor: 'train'})
-        step_loss, disc_loss_str, merged_str, _ = results
-        print '{} | Step {} | Loss = {}'.format(datetime.now(),
-                                                step,
-                                                step_loss)
+        if g_loss < 0.1 or step_loss > 0.15:
+            results = sess.run([disc_loss, disc_loss_summ, merged, disc_step],
+                               feed_dict={z: batch_z,
+                                          x_true: batch_imgs,
+                                          mode_tensor: 'train'})
+            step_loss, disc_loss_str, merged_str, _ = results
+            print '{} | Step {} | Loss = {}'.format(datetime.now(),
+                                                    step,
+                                                    step_loss)
         disc_steps = 0
-        while disc_steps < FLAGS.max_disc_steps and step_loss > 1.3:
-            step_loss, _ = sess.run([disc_loss, disc_step],
-                                    feed_dict={z: batch_z,
-                                               x_true: batch_imgs,
-                                               mode_tensor: 'train'})
-            disc_steps += 1
+        # while disc_steps < FLAGS.max_disc_steps and step_loss > 1.3:
+        #     step_loss, _ = sess.run([disc_loss, disc_step],
+        #                             feed_dict={z: batch_z,
+        #                                        x_true: batch_imgs,
+        #                                        mode_tensor: 'train'})
+        #     disc_steps += 1
 
         # Generator update step. Run multiple times to offset discriminator.
         g_loss, gen_loss_str, _ = sess.run([gen_loss, gen_loss_summ, gen_step],
                                            feed_dict={z: batch_z,
                                                       mode_tensor: 'train'})
         gen_steps = 0
-        while gen_steps < FLAGS.max_gen_steps and g_loss > 0.5:
-            g_loss, _ = sess.run([gen_loss, gen_step],
-                                 feed_dict={z: batch_z, mode_tensor: 'train'})
-            gen_steps += 1
+        # while gen_steps < FLAGS.max_gen_steps and g_loss > 0.5:
+        #     g_loss, _ = sess.run([gen_loss, gen_step],
+        #                          feed_dict={z: batch_z, mode_tensor: 'train'})
+        #     gen_steps += 1
 
         writer.add_summary(merged_str, step)
         writer.add_summary(disc_loss_str, step)
