@@ -141,7 +141,8 @@ def conv_layer(input_tensor, mode_tensor, weight_init, filter_size,
     # Apply convolution
     stride = [1, filter_stride, filter_stride, 1]
     conv = tf.nn.conv2d(input_tensor, conv_weights, stride, padding='SAME',
-                        name=name + '/affine')
+                        name=name + '/conv')
+    conv = tf.nn.bias_add(conv, bias, name=name + '/conv_bias')
     # Apply batchnorm
     if use_batchnorm:
         conv = batch_norm(conv, num_filters, tf.equal(mode_tensor, 'train'),
@@ -174,7 +175,8 @@ def deconv_layer(input_tensor, mode_tensor, weight_init, filter_size,
     stride = [1, filter_stride, filter_stride, 1]
     deconv = tf.nn.conv2d_transpose(input_tensor, deconv_weights, output_shape,
                                     stride, padding='SAME',
-                                    name=name + '/affine')
+                                    name=name + '/deconv')
+    deconv = tf.nn.bias_add(deconv, bias, name=name + '/deconv_bias')
     # Apply batchnorm
     if use_batchnorm:
         deconv = batch_norm(deconv, num_filters,

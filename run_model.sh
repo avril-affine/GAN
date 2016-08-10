@@ -11,7 +11,7 @@ INIT_DIR="flowers"
 IMAGE_DIR="flowers_resize"
 
 # python scrape_images.py
-python convert_images.py 64 $INIT_DIR $IMAGE_DIR
+# python convert_images.py 64 $INIT_DIR $IMAGE_DIR
 python model.py \
     --num_steps=$STEPS \
     --learning_rate=$LR \
