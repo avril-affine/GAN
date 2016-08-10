@@ -74,23 +74,23 @@ DECONV5_OUT_SIZE = 128
 # Discriminator Layers
 CONV0_FILTER_SIZE = 5
 CONV0_FILTER_STRIDE = 2
-CONV0_NUM_FILTERS = 64
+CONV0_NUM_FILTERS = 32
 
 CONV1_FILTER_SIZE = 5
 CONV1_FILTER_STRIDE = 2
-CONV1_NUM_FILTERS = 128
+CONV1_NUM_FILTERS = 64
 
 CONV2_FILTER_SIZE = 5
 CONV2_FILTER_STRIDE = 2
-CONV2_NUM_FILTERS = 256
+CONV2_NUM_FILTERS = 128
 
 CONV3_FILTER_SIZE = 5
 CONV3_FILTER_STRIDE = 2
-CONV3_NUM_FILTERS = 512
+CONV3_NUM_FILTERS = 256
 
 CONV4_FILTER_SIZE = 5
 CONV4_FILTER_STRIDE = 2
-CONV4_NUM_FILTERS = 1024
+CONV4_NUM_FILTERS = 512
 
 
 def leaky_relu(x, alpha, name):
@@ -351,6 +351,7 @@ def discriminator(input_tensor, mode_tensor):
                        'conv3')
     # 64 x 64 image
     conv4 = conv3
+
     # 128 x 128 image
     # conv4 = conv_layer(conv3,
     #                    mode_tensor,
@@ -430,12 +431,20 @@ def main(_):
         disc_gen = discriminator(gen_out, mode_tensor)
 
         scope.reuse_variables()
+        # 64 x 64 image
         x_true = tf.placeholder(tf.float32,
                                 shape=[None,
-                                       DECONV5_OUT_SIZE,
-                                       DECONV5_OUT_SIZE,
+                                       DECONV4_OUT_SIZE,
+                                       DECONV4_OUT_SIZE,
                                        INPUT_CHANNELS],
                                 name='X_true')
+        # 128 x 128 image
+        # x_true = tf.placeholder(tf.float32,
+        #                         shape=[None,
+        #                                DECONV5_OUT_SIZE,
+        #                                DECONV5_OUT_SIZE,
+        #                                INPUT_CHANNELS],
+        #                         name='X_true')
         disc_true = discriminator(x_true, mode_tensor)
 
     # Read image tensors.
@@ -526,7 +535,8 @@ def main(_):
         writer.add_summary(disc_loss_str, step)
         writer.add_summary(gen_loss_str, step)
 
-        if step % 100 == 0 or step + 1 == FLAGS.num_steps:
+        # if step % 100 == 0 or step + 1 == FLAGS.num_steps:
+        if g_loss < 0.05:
             print 'Writing test image'
             img_str = sess.run(img_summary,
                                feed_dict={z: batch_z,
