@@ -537,8 +537,8 @@ def main(_):
         writer.add_summary(disc_loss_str, step)
         writer.add_summary(gen_loss_str, step)
 
-        # if step % 100 == 0 or step + 1 == FLAGS.num_steps:
-        if g_loss < 0.05:
+        if step % 100 == 0 or step + 1 == FLAGS.num_steps:
+        # if g_loss < 0.05:
             print 'Writing test image'
             img_str = sess.run(img_summary,
                                feed_dict={z: batch_z,
